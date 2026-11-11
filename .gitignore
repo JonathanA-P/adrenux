@@ -1,0 +1,34 @@
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Build artifacts & compilation directories
+build/
+build-*/
+subprojects/
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+
+# Cache & temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+/tmp/
+.cache/
+.shader_cache/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
