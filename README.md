@@ -1,4 +1,4 @@
-# Snapdragon Adreno Linux GPU Acceleration Guide (Turnip KGSL + Mesa Zink)
+# Adrenux: Snapdragon Adreno Linux GPU Acceleration (Turnip KGSL + Mesa Zink)
 
 Complete guide and modular scripts to run an **ARM64 Debian Chroot** on Android with full **Hardware GPU Acceleration (Vulkan + OpenGL)** using open-source Mesa drivers (**Turnip KGSL** and **Zink**), displaying natively via **Termux:X11**.
 
