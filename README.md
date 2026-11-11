@@ -1,124 +1,139 @@
 # Adrenux: Snapdragon Adreno Linux GPU Acceleration (Turnip KGSL + Mesa Zink)
 
-Complete guide and modular scripts to run an **ARM64 Debian Chroot** on Android with full **Hardware GPU Acceleration (Vulkan + OpenGL)** using open-source Mesa drivers (**Turnip KGSL** and **Zink**), displaying natively via **Termux:X11**.
+Panduan dan kumpulan skrip untuk menjalankan **Debian Chroot (ARM64)** di Android dengan **akselerasi GPU hardware (Vulkan + OpenGL)** menggunakan driver open-source Mesa (**Turnip KGSL** dan **Zink**) melalui tampilan **Termux:X11**.
 
 ---
 
-## 📸 Visual Showcase
+## Hasil Pengujian & Screenshot
 
-### 1. Debian 12 (Bookworm) ARM64 Boot & System Overview
-GNOME Shell 43.9 running on Qualcomm Snapdragon Kryo CPU with Mutter window compositor:
+Berikut adalah tangkapan layar langsung dari pengujian di perangkat:
+
+### 1. Boot Debian 12 & Info Sistem
+Debian 12 (Bookworm) ARM64 berjalan dengan desktop environment GNOME Shell 43.9 dan window manager Mutter di atas kernel Android:
+
 ![Debian 12 ARM64 Neofetch](assets/debian-neofetch.png)
 
-### 2. GPU Hardware Acceleration Verification (`glxinfo` + `glxgears`)
-Direct verification of `zink Vulkan 1.0 (Turnip Adreno (TM) 612)` running 3D `glxgears` at native framerates:
-![GPU Acceleration Verification](assets/gpu-test.png)
+### 2. Verifikasi Driver GPU (glxinfo & glxgears)
+Verifikasi langsung output terminal `glxinfo` yang mendeteksi renderer `zink Vulkan 1.0 (Turnip Adreno (TM) 612 (MESA_TURNIP))` beserta 3D rendering `glxgears`:
 
-### 3. Desktop Environments & Applications
-High-performance desktop experience with native multitasking and desktop browsers:
-| GNOME Shell 43 Desktop | Firefox Running on Debian Chroot |
+![Verifikasi Akselerasi GPU](assets/gpu-test.png)
+
+### 3. Tampilan Desktop GNOME & Aplikasi
+Desktop environment GNOME Shell 43 dan aplikasi browser (Firefox) berjalan langsung di dalam chroot:
+
+| Tampilan Desktop GNOME 43 | Browser Firefox Berjalan di Debian |
 | :---: | :---: |
-| ![GNOME Desktop](assets/gnome-desktop.png) | ![Firefox Running](assets/firefox-running.png) |
+| ![GNOME Desktop](assets/gnome-desktop.png) | ![Firefox](assets/firefox-running.png) |
 
 ---
 
-## 🚀 Architecture Overview
+## Arsitektur
 
-Standard Linux chroots on Android typically default to CPU software rendering (`llvmpipe`), resulting in high CPU usage, thermal throttling, and poor window compositor performance. This project establishes a direct hardware pipeline to Qualcomm Adreno GPUs:
+Secara default, instalasi Linux chroot di Android menggunakan CPU software rendering (`llvmpipe`), yang membebani CPU dan membuat antarmuka desktop terasa berat. Project ini menghubungkan rendering langsung ke GPU Adreno melalui alur berikut:
 
 ```text
-┌────────────────────────────────────────────────────────┐
-│ Desktop Environment / Apps (GNOME 43, XFCE4, Chromium)│
-└───────────────────────────┬────────────────────────────┘
-                            │ (OpenGL API calls)
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Mesa Zink (Gallium OpenGL-over-Vulkan Driver)           │
-│ Configuration: GALLIUM_THREAD=0, LIBGL_KOPPER_DRI2=1    │
-└───────────────────────────┬────────────────────────────┘
-                            │ (Vulkan API calls)
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Mesa Turnip (Freedreno Vulkan Driver)                  │
-│ Backend: Kernel Graphics Support Layer (KGSL)          │
-└───────────────────────────┬────────────────────────────┘
-                            │ (Direct ioctl calls)
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Android Kernel Device Node: /dev/kgsl-3d0              │
-└───────────────────────────┬────────────────────────────┘
-                            │ (Physical Hardware)
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Qualcomm Adreno GPU (600 / 700 Series)                 │
-└────────────────────────────────────────────────────────┘
++--------------------------------------------------------+
+| Desktop Environment / Aplikasi (GNOME 43, XFCE4, dll)  |
++---------------------------+----------------------------+
+                            | (Panggilan OpenGL)
+                            v
++--------------------------------------------------------+
+| Mesa Zink (Driver Gallium OpenGL di atas Vulkan)       |
+| Konfigurasi: GALLIUM_THREAD=0, LIBGL_KOPPER_DRI2=1     |
++---------------------------+----------------------------+
+                            | (Panggilan Vulkan)
+                            v
++--------------------------------------------------------+
+| Mesa Turnip (Driver Vulkan Freedreno)                  |
+| Backend KMD: Kernel Graphics Support Layer (KGSL)      |
++---------------------------+----------------------------+
+                            | (Ioctl kernel)
+                            v
++--------------------------------------------------------+
+| Node Kernel Android: /dev/kgsl-3d0                     |
++---------------------------+----------------------------+
+                            | (Hardware GPU)
+                            v
++--------------------------------------------------------+
+| GPU Qualcomm Adreno (Seri 600 / 700)                   |
++--------------------------------------------------------+
 ```
 
 ---
 
-## 📱 Hardware Compatibility Matrix
+## Status Kompatibilitas Hardware
 
-This setup utilizes Mesa Turnip compiled with the **KGSL** (`-Dfreedreno-kmds=kgsl`) kernel backend. It communicates directly with Qualcomm's `/dev/kgsl-3d0` character device present in stock and custom Android kernels.
-
-### 1. Supported Qualcomm Adreno GPUs & SoCs
-
-| GPU Family | Adreno Model | Qualcomm Snapdragon SoCs | Status | Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| **Adreno 600 Series** | **Adreno 612** | Snapdragon 675 (SM6150) | **Verified Working** | 120 FPS vkcube, ~88-237 FPS glxgears, GNOME 43 |
-| | **Adreno 610** | Snapdragon 665, 662, 460 | Supported | Full Turnip KGSL compatibility |
-| | **Adreno 615 / 616** | Snapdragon 670, 710, 712 | Supported | Full Turnip KGSL compatibility |
-| | **Adreno 618** | Snapdragon 720G, 730, 730G, 732G | Supported | Excellent performance |
-| | **Adreno 619** | Snapdragon 750G, 690, 695, 480, 480+ | Supported | Full Turnip KGSL compatibility |
-| | **Adreno 620** | Snapdragon 765, 765G, 768G | Supported | Full Turnip KGSL compatibility |
-| | **Adreno 630** | Snapdragon 845 | Supported | Mature Freedreno/Turnip target |
-| | **Adreno 640** | Snapdragon 855, 855+ | Supported | High performance |
-| | **Adreno 642L / 643** | Snapdragon 778G, 778G+, 782G | Supported | Very high performance |
-| | **Adreno 650** | Snapdragon 865, 865+, 870 | Supported | Flagship performance |
-| | **Adreno 660** | Snapdragon 888, 888+ | Supported | Flagship performance |
-| **Adreno 700 Series** | **Adreno 730** | Snapdragon 8 Gen 1, 8+ Gen 1 | Supported | Requires Mesa 24.x/25.x |
-| | **Adreno 740** | Snapdragon 8 Gen 2 | Supported | Requires Mesa 24.x/25.x |
-| | **Adreno 750** | Snapdragon 8 Gen 3 | Supported | Requires Mesa 24.x/25.x |
+Driver Mesa Turnip dalam project ini dikompilasi dengan backend **KGSL** (`-Dfreedreno-kmds=kgsl`), yaitu interface driver kernel GPU Qualcomm yang ada di hampir semua kernel Android Snapdragon.
 
 > [!NOTE]
-> **Unsupported Devices:** MediaTek (Mali / Immortalis) and Samsung Exynos (Mali / Xclipse RDNA) GPUs do not use the Qualcomm KGSL/Freedreno architecture and are **incompatible** with this Turnip driver. Older Adreno GPUs (Adreno 5xx or older) lack modern Vulkan 1.3 support.
+> **Catatan Kejujuran Kompatibilitas:**
+> Sejauh ini, konfigurasi ini **baru diuji dan dipastikan berfungsi pada Adreno 612 (Snapdragon 675)**.
+> Chipset lain yang tercantum di bawah secara arsitektur memiliki interface KGSL yang serupa dan kemungkinan besar bisa berjalan, namun **belum pernah diuji secara langsung** pada project ini. Jangan berasumsi langsung berjalan tanpa penyesuaian.
 
-### 2. Software & Kernel Prerequisites
-- **Root Access:** Magisk, KernelSU, or APatch (required for chroot mounts and setting `/dev/kgsl-3d0` read/write permissions).
-- **Kernel Version:** Linux 4.9, 4.14, 4.19, 5.4, 5.10, 5.15+ with Qualcomm KGSL driver.
-- **Android OS:** Android 9 through Android 15.
-- **Termux:** Latest build from GitHub / F-Droid.
-- **Termux:X11:** Companion application for X11 display rendering.
-- **Linux Distribution:** Debian 12 (Bookworm) arm64 or Ubuntu 22.04/24.04 arm64 installed via `chroot-distro`.
+### Tabel Chipset & GPU
+
+| GPU Family | Model Adreno | Contoh SoC Snapdragon | Status Pengujian | Keterangan |
+| :--- | :--- | :--- | :--- | :--- |
+| **Adreno 600 Series** | **Adreno 612** | Snapdragon 675 (SM6150) | **Sudah Dites & Berfungsi** | Berhasil menjalankan vkcube, glxgears, dan GNOME 43 |
+| | **Adreno 610** | Snapdragon 665, 662, 460 | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 615 / 616** | Snapdragon 670, 710, 712 | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 618** | Snapdragon 720G, 730, 730G, 732G | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 619** | Snapdragon 750G, 690, 695, 480 | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 620** | Snapdragon 765, 765G, 768G | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 630** | Snapdragon 845 | Belum Dites | Target Turnip lama yang sudah matang di upstream |
+| | **Adreno 640** | Snapdragon 855, 855+ | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 642L / 643** | Snapdragon 778G, 778G+, 782G | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 650** | Snapdragon 865, 865+, 870 | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| | **Adreno 660** | Snapdragon 888, 888+ | Belum Dites | Arsitektur KGSL sama, kemungkinan bisa |
+| **Adreno 700 Series** | **Adreno 730** | Snapdragon 8 Gen 1 | Belum Dites | Butuh dukungan Mesa 24.x/25.x |
+| | **Adreno 740** | Snapdragon 8 Gen 2 | Belum Dites | Butuh dukungan Mesa 24.x/25.x |
+| | **Adreno 750** | Snapdragon 8 Gen 3 | Belum Dites | Butuh dukungan Mesa 24.x/25.x |
+
+> [!WARNING]
+> **Perangkat yang Tidak Didukung:** MediaTek (GPU Mali / Immortalis) dan Samsung Exynos (GPU Mali / Xclipse AMD) **tidak kompatibel** karena tidak menggunakan kernel driver Qualcomm KGSL. GPU Adreno seri lama (Adreno 5xx ke bawah) belum mendukung Vulkan 1.3 secara penuh.
+
+### Ekspektasi Realistis & Batasan Teknis
+- **Bukan Pengganti PC Desktop:** Setup ini ditujukan untuk eksperimen atau utilitas desktop portabel. Performa sangat bergantung pada thermal throttling smartphone Anda saat beban kerja lama.
+- **Rendering Artifacts & Glitches:** Beberapa aplikasi dengan shader OpenGL yang sangat kompleks mungkin menampilkan visual glitch karena translasi Zink ke Vulkan Turnip.
+- **Batasan Lingkungan Chroot:** Layanan sistem seperti GNOME Screencast, PolicyKit/PolKit penuh, dan UPower berjalan dengan batasan karena chroot berbagi kernel dengan Android.
+
+### Kebutuhan Perangkat & Software
+- **Akses Root:** Magisk, KernelSU, atau APatch (dibutuhkan untuk chroot mounting dan izin akses ke `/dev/kgsl-3d0`).
+- **Versi Kernel:** Linux 4.9, 4.14, 4.19, 5.4, 5.10, atau 5.15+ dengan modul KGSL aktif.
+- **OS Android:** Android 9 hingga Android 14/15.
+- **Termux & Termux:X11:** Versi rilis GitHub terbaru.
+- **Distro Linux:** Debian 12 (Bookworm) arm64 via `chroot-distro`.
 
 ---
 
-## 🛠️ Step-by-Step Installation
+## Langkah Instalasi
 
-### Step 1: Install Termux & Debian Rootfs
+Semua skrip otomasi berada langsung di root direktori project ini.
 
-In Termux:
+### 1. Siapkan Termux dan Debian Chroot
+Jalankan di Termux (user biasa):
 ```bash
 pkg update && pkg install -y tsu chroot-distro pulseaudio
 chroot-distro install debian
 ```
 
-### Step 2: Prepare Chroot Filesystem Mounts
-
-Run `scripts/mount-chroot.sh` as root in Android (`su`):
+### 2. Mount Filesystem Chroot
+Jalankan skrip `mount-chroot.sh` sebagai root di Android (`su`):
 ```bash
-su -c "sh /path/to/scripts/mount-chroot.sh"
+su
+sh mount-chroot.sh
 ```
-This script bind-mounts `/dev`, `/dev/pts`, `/dev/shm`, `/proc`, `/sys`, sets `/dev/kgsl-3d0` permissions to `666`, and bridges the Termux X11 UNIX socket.
+Skrip ini akan melakukan bind-mount untuk `/dev`, `/dev/pts`, `/dev/shm`, `/proc`, `/sys`, memberikan izin `666` pada `/dev/kgsl-3d0`, serta menghubungkan socket X11 dari Termux.
 
-### Step 3: Build or Install Precompiled Drivers
+### 3. Kompilasi Driver Mesa Turnip & Zink
 
-#### Option A: Build Mesa Turnip Vulkan (KGSL Backend)
-Inside the Debian chroot (`chroot-distro login debian`):
+Masuk ke dalam chroot Debian (`chroot-distro login debian`):
+
+#### A. Kompilasi Turnip Vulkan (KGSL Backend)
 ```bash
-bash /path/to/scripts/build-mesa-turnip.sh
+bash build-mesa-turnip.sh
 ```
-
-*Exact Meson Configuration applied:*
+*Flag Meson yang digunakan:*
 ```bash
 meson setup build-turnip mesa-25.2.6 \
   --prefix=/opt/mesa-kgsl --libdir=lib --buildtype=release \
@@ -130,17 +145,15 @@ meson setup build-turnip mesa-25.2.6 \
   -Dllvm=disabled -Dbuild-tests=false
 ```
 
-#### Option B: Build Mesa Zink (OpenGL over Vulkan)
-Inside the Debian chroot:
+#### B. Kompilasi Zink (OpenGL over Vulkan)
 ```bash
-bash /path/to/scripts/build-mesa-zink.sh
+bash build-mesa-zink.sh
 ```
-
 > [!IMPORTANT]
-> **Critical Mesa Gotcha (`-Dgbm=enabled`):**
-> In Mesa 25.x, compiling with `-Dglx=dri` without `-Dgbm=enabled` will silently skip compiling `subdir('gallium/targets/dril')`, resulting in missing `zink_dri.so`. `-Dgbm=enabled` is **mandatory** for generating `zink_dri.so`.
+> **Catatan Penting Flag `-Dgbm=enabled`:**
+> Pada Mesa 25.x, kompilasi GLX DRI tanpa opsi `-Dgbm=enabled` akan menyebabkan Meson melewatkan target `subdir('gallium/targets/dril')`, sehingga library `zink_dri.so` tidak akan terbuat. Flag `-Dgbm=enabled` wajib disertakan.
 
-*Exact Meson Configuration applied:*
+*Flag Meson yang digunakan:*
 ```bash
 meson setup build-zink mesa-25.2.6 \
   --prefix=/opt/mesa-zink --libdir=lib --buildtype=release \
@@ -150,34 +163,34 @@ meson setup build-zink mesa-25.2.6 \
   -Dgbm=enabled -Dllvm=disabled -Dbuild-tests=false
 ```
 
-#### Option C: Verify Compiled Drivers
-Run the verification script to confirm AArch64 ELF validity and dynamic linker resolution:
+#### C. Verifikasi File Hasil Kompilasi
+Jalankan skrip verifikasi untuk memastikan header ELF AArch64 dan dependensi dinamis sudah lengkap:
 ```bash
-bash /path/to/scripts/verify-build.sh
+bash verify-build.sh
 ```
 
 ---
 
-## 🎮 Launching the Hardware-Accelerated Desktop
+## Menjalankan Desktop Berakselerasi GPU
 
-### 1. Start Termux:X11
-In Termux (as normal user):
+### 1. Buka Display Termux:X11
+Di sesi Termux Android:
 ```bash
 termux-x11 :2 &
 am start -n com.termux.x11/com.termux.x11.MainActivity
 ```
 
-### 2. Launch Accelerated Desktop Session
-Inside Debian Chroot:
+### 2. Mulai Desktop di Dalam Chroot
+Di dalam Debian chroot:
 ```bash
-# Launch GNOME Shell 43
-bash /path/to/scripts/start-desktop.sh gnome
+# Menjalankan GNOME Shell 43
+bash start-desktop.sh gnome
 
-# Or launch XFCE4
-bash /path/to/scripts/start-desktop.sh xfce
+# Atau menjalankan XFCE4
+bash start-desktop.sh xfce
 ```
 
-### Essential Stability Environment Variables:
+### Environment Variable Penting untuk Stabilitas:
 ```bash
 export VK_ICD_FILENAMES=/opt/mesa-kgsl/share/vulkan/icd.d/turnip_icd.json
 export LD_LIBRARY_PATH=/opt/mesa-zink/lib:$LD_LIBRARY_PATH
@@ -185,8 +198,8 @@ export LIBGL_DRIVERS_PATH=/opt/mesa-zink/lib/dri
 export MESA_LOADER_DRIVER_OVERRIDE=zink
 export GALLIUM_DRIVER=zink
 
-# CRITICAL FIX FOR COMPOSITOR STABILITY:
-# Fixes multithreaded queue race condition in tu_CmdPipelineBarrier2
+# PENCEGAHAN CRASH MUTTER / GNOME SHELL:
+# Mengatasi race condition pada multithreaded queue tu_CmdPipelineBarrier2
 export GALLIUM_THREAD=0
 export LIBGL_KOPPER_DRI2=1
 export GSK_RENDERER=cairo
@@ -196,27 +209,29 @@ export NO_AT_BRIDGE=1
 
 ---
 
-## 📊 Verification & Diagnostics
+## Verifikasi & Diagnostik
 
-Run `scripts/test-gpu.sh` inside the chroot:
+Untuk memeriksa apakah akselerasi GPU benar-benar aktif (bukan software llvmpipe), jalankan:
 ```bash
-bash /path/to/scripts/test-gpu.sh
+bash test-gpu.sh
 ```
 
-### Verified Terminal Outputs:
+### Hasil yang Diharapkan:
 
-1. **Vulkan Check (`vulkaninfo`):**
+1. **Pemeriksaan Vulkan (`vulkaninfo`):**
    ```text
    deviceName     = Turnip Adreno (TM) 612
    driverName     = freedreno
    apiVersion     = 1.3.318
    ```
-2. **Vulkan Rendering (`vkcube`):**
+
+2. **Render Vulkan (`vkcube`):**
    ```text
    Selected GPU 0: Turnip Adreno (TM) 612, type: IntegratedGpu
-   FRAME_TEST_EXIT=0 (120 frames rendered without error)
+   FRAME_TEST_EXIT=0 (120 frames selesai dirender)
    ```
-3. **OpenGL Check (`glxinfo -B`):**
+
+3. **Pemeriksaan OpenGL Zink (`glxinfo -B`):**
    ```text
    OpenGL vendor string: Mesa
    OpenGL renderer string: zink Vulkan 1.0(Turnip Adreno (TM) 612 (MESA_TURNIP))
@@ -224,24 +239,24 @@ bash /path/to/scripts/test-gpu.sh
    OpenGL ES profile version string: OpenGL ES 3.2 Mesa 25.2.6
    Accelerated: yes
    ```
-4. **OpenGL Performance (`glxgears`):**
+
+4. **Pengujian Framerate OpenGL (`glxgears`):**
    ```text
    Running synchronized to the vertical refresh.
-   432 frames in 5.0 seconds = 86.400 FPS (VSync locked)
-   Cortex-A76 Optimized Build: up to 237.334 FPS
+   432 frames in 5.0 seconds = 86.400 FPS (Terkunci VSync)
    ```
 
 ---
 
-## ⚡ Performance Tuning (`scripts/tune-hardware.sh`)
+## Optimasi Hardware (`tune-hardware.sh`)
 
-To eliminate CPU bottlenecks and storage latency on Snapdragon chips, run `scripts/tune-hardware.sh` as root:
-- **CPU:** Brings all Kryo big and LITTLE cores online and sets scaling governors to `schedutil` or `performance`.
-- **GPU:** Unlocks max Adreno devfreq clock rates (`745 MHz` turbo on Adreno 612).
-- **Storage:** Optimizes UFS 2.1 / 3.1 I/O queue schedulers (`deadline`, `read_ahead_kb=2048`).
-- **IPC:** Enlarges network & X11 Unix socket buffers (`net.core.wmem_default=8388608`) to prevent compositor stutter.
+Untuk membantu mengurangi hambatan I/O dan frekuensi CPU, skrip `tune-hardware.sh` dapat dijalankan sebagai root di Android:
+- **CPU:** Menyalakan seluruh core CPU dan mengatur governor cpufreq ke `schedutil` dengan base frequency yang stabil.
+- **GPU:** Mengatur clock rate devfreq GPU Adreno ke level maksimum yang diizinkan kernel tanpa memicu hang SurfaceFlinger.
+- **Storage:** Mengatur antrian I/O storage UFS ke scheduler `deadline` dan `read_ahead_kb=2048`.
+- **IPC Socket:** Memperbesar buffer socket (`net.core.wmem_default=8388608`) untuk mencegah delay komunikasi X11.
 
 ---
 
-## 📄 License
-MIT License. Open-source and free for the community.
+## Lisensi
+MIT License. Bebas digunakan dan dikembangkan kembali.
